@@ -1,26 +1,29 @@
-function CellsortPlotPCspectrum(fn, CovEvals, PCuse)
+function CellsortPlotPCspectrum(experiment, mixedfilters, CovEvals, PCuse)
 % CellsortPlotPCspectrum(fn, CovEvals, PCuse)
 %
 % Plot the principal component (PC) spectrum and compare with the
 % corresponding random-matrix noise floor
 %
 % Inputs:
-%   fn - movie file name. Must be in TIFF format.
+%   experiment - experiment structure
+%   mixedfilters - N x X matrix of N spatial signal mixtures sampled at X
+%   spatial points.
 %   CovEvals - eigenvalues of the covariance matrix
 %   PCuse - [optional] - indices of PCs included in dimensionally reduced
 %   data set
+
 %
 % Eran Mukamel, Axel Nimmerjahn and Mark Schnitzer, 2009
 % Email: eran@post.harvard.edu, mschnitz@stanford.edu
 %
+% 2017 - NETCAL Adaptation - Javier Orlandi
 
 if nargin<3
     PCuse = [];
 end
-
-[pixw,pixh] = size(imread(fn,1));
+[pixw,pixh] = size(mixedfilters(:,:,1));
 npix = pixw*pixh;
-nt = tiff_frames(fn);
+nt = experiment.numFrames;
 
 % Random matrix prediction (Sengupta & Mitra)
 p1 = npix; % Number of pixels
@@ -60,8 +63,8 @@ else
     legend('Data variance','Noise floor','2 x Noise floor','Retained PCs')
 end
 
-fntitle = fn;
-fntitle(fn=='_') = ' ';
+fntitle = experiment.name;
+fntitle(fntitle=='_') = '-';
 title(fntitle)
 
 function formataxes
@@ -70,12 +73,3 @@ set(gca,'FontSize',12,'FontWeight','bold','FontName','Helvetica','LineWidth',2,'
 set(gcf,'Color','w','PaperPositionMode','auto')
 
 
-function j = tiff_frames(fn)
-%
-% n = tiff_frames(filename)
-%
-% Returns the number of slices in a TIFF stack.
-%
-% Modified April 9, 2013 for compatibility with MATLAB 2012b
-
-j = length(imfinfo(fn));

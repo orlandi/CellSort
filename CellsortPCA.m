@@ -1,5 +1,5 @@
 function [mixedsig, mixedfilters, CovEvals, covtrace, movm, ...
-    movtm] = CellsortPCA(fn, flims, nPCs, dsamp, outputdir, badframes)
+    movtm] = CellsortPCA(experiment, flims, nPCs, dsamp, outputdir, badframes, pw, ph)
 % [mixedsig, mixedfilters, CovEvals, covtrace, movm, movtm] = CellsortPCA(fn, flims, nPCs, dsamp, outputdir, badframes)
 %
 % CELLSORT
@@ -7,7 +7,7 @@ function [mixedsig, mixedfilters, CovEvals, covtrace, movm, ...
 % dimensional reduction.
 %
 % Inputs:
-%   fn - movie file name. Must be in TIFF format.
+%   experiment - experiment structure
 %   flims - 2-element vector specifying the endpoints of the range of
 %   frames to be analyzed. If empty, default is to analyze all movie
 %   frames.
@@ -15,9 +15,11 @@ function [mixedsig, mixedfilters, CovEvals, covtrace, movm, ...
 %   dsamp - optional downsampling factor. If scalar, specifies temporal
 %   downsampling factor. If two-element vector, entries specify temporal
 %   and spatial downsampling, respectively.
-%   outputdir - directory in which to store output .mat files
+%   outputdir - directory in which to store output .mat files (relative to the experiment folder)
 %   badframes - optional list of indices of movie frames to be excluded
 %   from analysis
+%   pw - 2-element vector with first and last pixel width coordiantes to use (leave empty to use the whole image)
+%   ph - 2-element vector with first and last pixel height coordiantes to use (leave empty to use the whole image)
 %
 % Outputs:
 %   mixedsig - N x T matrix of N temporal signal mixtures sampled at T
@@ -41,16 +43,19 @@ function [mixedsig, mixedfilters, CovEvals, covtrace, movm, ...
 % version of create_tcov.
 %
 
+% 2017 - NETCAL Adaptation - Javier Orlandi
+
+
 tic
-fprintf('-------------- CellsortPCA %s: %s -------------- \n', date, fn)
+fprintf('-------------- CellsortPCA %s: %s -------------- \n', date, experiment.name)
 
 %-----------------------
 % Check inputs
-if isempty(dir(fn))
-    error('Invalid input file name.')
-end
+% if isempty(dir(fn))
+%     error('Invalid input file name.')
+% end
 if (nargin<2)||(isempty(flims))
-    nt_full = tiff_frames(fn);
+    nt_full = experiment.numFrames;
     flims = [1,nt_full];
 end
 if nargin<6
@@ -67,16 +72,17 @@ if nargin<4 || isempty(dsamp)
     dsamp = [1,1];
 end
 if nargin<5 || isempty(outputdir)
-    outputdir = [pwd,'/cellsort_preprocessed_data/'];
+    outputdir = [experiment.folder, filesep 'cellsort_preprocessed_data', filesep];
 end
 if isempty(dir(outputdir))
-    mkdir(pwd, '/cellsort_preprocessed_data/')
+    mkdir([experiment.folder, filesep 'cellsort_preprocessed_data', filesep]);
 end
-if outputdir(end)~='/';
-    outputdir = [outputdir, '/'];
+if outputdir(end)~= filesep
+    outputdir = [outputdir, filesep];
 end
 
-[~, fname] = fileparts(fn);
+%[~, fname] = fileparts(fn);
+fname = experiment.name;
 if isempty(badframes)
     fnmat = [outputdir, fname, '_',num2str(flims(1)),',',num2str(flims(2)), '_', date,'.mat'];
 else
@@ -84,7 +90,7 @@ else
 end
 if ~isempty(dir(fnmat))
     fprintf('CELLSORT: Movie %s already processed;', ...
-        fn)
+        experiment.name)
     forceload = input(' Re-load data? [0-no/1-yes] ');
     if isempty(forceload) || forceload==0
         load(fnmat)
@@ -92,7 +98,18 @@ if ~isempty(dir(fnmat))
     end
 end
 
-[pixw,pixh] = size(imread(fn,1));
+if(nargin < 7)
+  pw = 1:experiment.width;
+else
+  pw = pw(1):pw(2);
+end
+if(nargin < 8)
+  ph = 1:experiment.height;
+else
+  ph = ph(1):ph(2);
+end
+pixw = numel(pw);
+pixh = numel(ph);
 npix = pixw*pixh;
 
 fprintf('   %d pixels x %d time frames;', npix, nt)
@@ -100,10 +117,10 @@ fprintf('   %d pixels x %d time frames;', npix, nt)
 % Create covariance matrix
 if nt < npix 
     fprintf(' using temporal covariance matrix.\n')
-    [covmat, mov, movm, movtm] = create_tcov(fn, pixw, pixh, useframes, nt, dsamp);
+    [covmat, mov, movm, movtm] = create_tcov(experiment, pw, ph, useframes, nt, dsamp);
 else
     fprintf(' using spatial covariance matrix.\n')
-    [covmat, mov, movm, movtm] = create_xcov(fn, pixw, pixh, useframes, nt, dsamp);
+    [covmat, mov, movm, movtm] = create_xcov(experiment, pw, ph, useframes, nt, dsamp);
 end
 
 covtrace = trace(covmat) / npix;
@@ -124,7 +141,8 @@ else
     [mixedsig] = reload_moviedata(nt, mov', mixedfilters', CovEvals);
     mixedsig = mixedsig' / npix^2;
 end
-mixedfilters = reshape(mixedfilters, pixw,pixh,nPCs);
+%mixedfilters = reshape(mixedfilters, pixw,pixh,nPCs);
+mixedfilters = reshape(mixedfilters, pixh,pixw,nPCs);
 
 %------------
 % Save the output data
@@ -133,12 +151,23 @@ save(fnmat,'mixedfilters','CovEvals','mixedsig', ...
 fprintf(' CellsortPCA: saving data and exiting; ')
 toc
 
-    function [covmat, mov, movm, movtm] = create_xcov(fn, pixw, pixh, useframes, nt, dsamp)
+    function [covmat, mov, movm, movtm] = create_xcov(experiment, pw, ph, useframes, nt, dsamp)
         %-----------------------
         % Load movie data to compute the spatial covariance matrix
-
-        npix1 = pixw*pixh;
-
+        pixw1 = numel(pw);
+        pixh1 = numel(ph);
+        npix1 = pixw1*pixh1;
+        % Check if we are not using the whole frame
+        if(pixw1 ~= experiment.width || pixh1 ~= experiment.height)
+          % Inverted because of HIS structure
+          [rf,cf]= find(ones(experiment.height, experiment.width));
+          pixelList = find(cf >= min(ph) & cf <= max(ph) & rf >= min(pw) & rf <= max(pw));
+        else
+          pixelList = [];
+        end
+        % Load the video Stream
+        [fID, experiment] = openVideoStream(experiment);
+        
         % Downsampling
         if length(dsamp)==1
             dsamp_time = dsamp(1);
@@ -149,26 +178,48 @@ toc
         end
 
         if (dsamp_space==1)
-            mov = zeros(pixw, pixh, nt);
+            mov = zeros(pixh1, pixw1, nt);
             for jjind=1:length(useframes)
                 jj = useframes(jjind);
-                mov(:,:,jjind) = imread(fn,jj);
+                %mov(:,:,jjind) = imread(fn,jj);
+                curFrame = getFrame(experiment, jj, fID, pixelList);
+                if(~isempty(pixelList))
+                  %curFrame = reshape(curFrame, [pixh1, pixw1]);
+                  % Inverted because of HIS ordering
+                  curFrame = reshape(curFrame, [pixw1, pixh1])';
+                end
+                mov(:, :, jjind) = curFrame;
                 if mod(jjind,500)==1
+%                   figure;
+%                   imagesc(curFrame);
+%                   colormap gray;
+%                   colorbar;
+%                   [m, M] = autoLevelsFIJI(curFrame, 16, true);
+%                   caxis([m, M]);
                     fprintf(' Read frame %4.0f out of %4.0f; ', jjind, nt)
                     toc
                 end
             end
         else
-            [pixw_dsamp,pixh_dsamp] = size(imresize( imread(fn,1), 1/dsamp_space, 'bilinear' ));
-            mov = zeros(pixw_dsamp, pixh_dsamp, nt);
-            for jjind=1:length(useframes)
-                jj = useframes(jjind);
-                mov(:,:,jjind) = imresize( imread(fn,jj), 1/dsamp_space, 'bilinear' );
-                if mod(jjind,500)==1
-                    fprintf(' Read frame %4.0f out of %4.0f; ', jjind, nt)
-                    toc
-                end
-            end
+          curFrame = getFrame(experiment, 1, fID, pixelList);
+          if(~isempty(pixelList))
+            curFrame = reshape(curFrame, [pixh1, pixw1]);
+          end
+          [pixw_dsamp,pixh_dsamp] = size(imresize(curFrame, 1/dsamp_space, 'bilinear' ));
+          mov = zeros(pixw_dsamp, pixh_dsamp, nt);
+          for jjind=1:length(useframes)
+              jj = useframes(jjind);
+              %mov(:,:,jjind) = imresize( imread(fn,jj), 1/dsamp_space, 'bilinear' );
+              curFrame = getFrame(experiment, jj, fID, pixelList);
+              if(~isempty(pixelList))
+                curFrame = reshape(curFrame, [pixh1, pixw1]);
+              end
+              mov(:, :, jjind) = imresize(curFrame, 1/dsamp_space, 'bilinear');
+              if mod(jjind,500)==1
+                  fprintf(' Read frame %4.0f out of %4.0f; ', jjind, nt)
+                  toc
+              end
+          end
         end
 
         fprintf(' Read frame %4.0f out of %4.0f; ', jjind, nt)
@@ -193,13 +244,25 @@ toc
         covmat = (mov*mov')/size(mov,2);
         covmat = covmat * size(mov,2)/size(mov,1); % Rescale to gree with create_tcov
         toc
+        closeVideoStream(fID);
     end
 
-    function [covmat, mov, movm, movtm] = create_tcov(fn, pixw, pixh, useframes, nt, dsamp)
+    function [covmat, mov, movm, movtm] = create_tcov(experiment, pw, ph, useframes, nt, dsamp)
         %-----------------------
         % Load movie data to compute the temporal covariance matrix
-        npix1 = pixw*pixh;
-
+        pixw1 = numel(pw);
+        pixh1 = numel(ph);
+        npix1 = pixw1*pixh1;
+        % Check if we are not using the whole frame
+        if(pixw1 ~= experiment.width || pixh1 ~= experiment.height)
+          [c, r] = meshgrid(pw, ph);
+          pixelList = sub2ind([experiment.height, experiment.width], r(:), c(:));
+        else
+          pixelList = [];
+        end
+        % Load the video Stream
+        [fID, experiment] = openVideoStream(experiment);
+        
         % Downsampling
         if length(dsamp)==1
             dsamp_time = dsamp(1);
@@ -210,26 +273,41 @@ toc
         end
 
         if (dsamp_space==1)
-            mov = zeros(pixw, pixh, nt);
+            %mov = zeros(pixw1, pixh1, nt);
+            mov = zeros(pixh1, pixw1, nt);
             for jjind=1:length(useframes)
                 jj = useframes(jjind);
-                mov(:,:,jjind) = imread(fn,jj);
+                %mov(:,:,jjind) = imread(fn,jj);
+                curFrame = getFrame(experiment, jj, fID, pixelList);
+                if(~isempty(pixelList))
+                  curFrame = reshape(curFrame, [pixh1, pixw1]);
+                end
+                mov(:, :, jjind) = curFrame;
                 if mod(jjind,500)==1
                     fprintf(' Read frame %4.0f out of %4.0f; ', jjind, nt)
                     toc
                 end
             end
         else
-            [pixw_dsamp,pixh_dsamp] = size(imresize( imread(fn,1), 1/dsamp_space, 'bilinear' ));
-            mov = zeros(pixw_dsamp, pixh_dsamp, nt);
-            for jjind=1:length(useframes)
-                jj = useframes(jjind);
-                mov(:,:,jjind) = imresize( imread(fn,jj), 1/dsamp_space, 'bilinear' );
-                if mod(jjind,500)==1
-                    fprintf(' Read frame %4.0f out of %4.0f; ', jjind, nt)
-                    toc
-                end
-            end
+          curFrame = getFrame(experiment, 1, fID, pixelList);
+          if(~isempty(pixelList))
+            curFrame = reshape(curFrame, [pixh1, pixw1]);
+          end
+          [pixw_dsamp,pixh_dsamp] = size(imresize(curFrame, 1/dsamp_space, 'bilinear' ));
+          mov = zeros(pixw_dsamp, pixh_dsamp, nt);
+          for jjind=1:length(useframes)
+              jj = useframes(jjind);
+              %mov(:,:,jjind) = imresize( imread(fn,jj), 1/dsamp_space, 'bilinear' );
+              curFrame = getFrame(experiment, jj, fID, pixelList);
+              if(~isempty(pixelList))
+                curFrame = reshape(curFrame, [pixh1, pixw1]);
+              end
+              mov(:, :, jjind) = imresize(curFrame, 1/dsamp_space, 'bilinear');
+              if mod(jjind,500)==1
+                  fprintf(' Read frame %4.0f out of %4.0f; ', jjind, nt)
+                  toc
+              end
+          end
         end
 
         fprintf(' Read frame %4.0f out of %4.0f; ', jjind, nt)
@@ -294,16 +372,6 @@ toc
         movtm1 = mean(mov,1); % Average over space
         movuse = mov - ones(npix1,1) * movtm1;
         mixedfilters = reshape(movuse * mixedsig' * Sinv, npix1, nPCs1);
-    end
-
-    function j = tiff_frames(fn)
-        %
-        % n = tiff_frames(filename)
-        %
-        % Returns the number of slices in a TIFF stack.
-        %
-        % Modified April 9, 2013 for compatibility with MATLAB 2012b
-
-        j = length(imfinfo(fn));
+        %mixedfilters = reshape(movuse * mixedsig * Sinv, npix1, nPCs1);
     end
 end

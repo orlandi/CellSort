@@ -1,11 +1,10 @@
-function [PCuse] = CellsortChoosePCs(fn, mixedfilters)
+function [PCuse] = CellsortChoosePCs(mixedfilters)
 % [PCuse] = CellsortChoosePCs(fn, mixedfilters)
 %
 % Allows the user to select which principal components will be kept
 % following dimensional reduction.
 %
 % Inputs:
-%   fn - movie file name. Must be in TIFF format.
 %   mixedfilters - N x X matrix of N spatial signal mixtures sampled at X
 %   spatial points.
 %
@@ -16,12 +15,21 @@ function [PCuse] = CellsortChoosePCs(fn, mixedfilters)
 % Eran Mukamel, Axel Nimmerjahn and Mark Schnitzer, 2009
 % Email: eran@post.harvard.edu, mschnitz@stanford.edu
 %
+%
+% 2017 - NETCAL Adaptation - Javier Orlandi
 
 fprintf('-------------- CellsortChoosePCs %s -------------- \n', date)
 
-[pixw,pixh] = size(imread(fn,1));
+[pixw,pixh] = size(mixedfilters(:,:,1));
 
-npcs = 20; % Number of PCs to display concurrently
+
+if(ndims(mixedfilters) > 2)
+  ne = size(mixedfilters, 3);
+else
+  ne = size(mixedfilters, 2);
+end
+npcs = min(20, ne); % Number of PCs to display concurrently
+
 currpcs = [1:npcs];
 PCf = [];
 while isempty(PCf)
@@ -88,6 +96,7 @@ end
 if ndims(Efull)>=3
     Efull = reshape(Efull, pixw*pixh, []);
 end
+
 for j=usepcs
     Efull(:,j) = zscore(Efull(:,j));
 end
