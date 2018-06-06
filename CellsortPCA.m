@@ -1,5 +1,5 @@
 function [mixedsig, mixedfilters, CovEvals, covtrace, movm, ...
-    movtm] = CellsortPCA(experiment, flims, nPCs, dsamp, outputdir, badframes, pw, ph)
+    movtm] = CellsortPCA(experiment, flims, nPCs, dsamp, outputdir, badframes, pw, ph, movieType)
 % [mixedsig, mixedfilters, CovEvals, covtrace, movm, movtm] = CellsortPCA(fn, flims, nPCs, dsamp, outputdir, badframes)
 %
 % CELLSORT
@@ -20,6 +20,7 @@ function [mixedsig, mixedfilters, CovEvals, covtrace, movm, ...
 %   from analysis
 %   pw - 2-element vector with first and last pixel width coordiantes to use (leave empty to use the whole image)
 %   ph - 2-element vector with first and last pixel height coordiantes to use (leave empty to use the whole image)
+%   movieType - original/glia
 %
 % Outputs:
 %   mixedsig - N x T matrix of N temporal signal mixtures sampled at T
@@ -117,10 +118,10 @@ fprintf('   %d pixels x %d time frames;', npix, nt)
 % Create covariance matrix
 if nt < npix 
     fprintf(' using temporal covariance matrix.\n')
-    [covmat, mov, movm, movtm] = create_tcov(experiment, pw, ph, useframes, nt, dsamp);
+    [covmat, mov, movm, movtm] = create_tcov(experiment, pw, ph, useframes, nt, dsamp, movieType);
 else
     fprintf(' using spatial covariance matrix.\n')
-    [covmat, mov, movm, movtm] = create_xcov(experiment, pw, ph, useframes, nt, dsamp);
+    [covmat, mov, movm, movtm] = create_xcov(experiment, pw, ph, useframes, nt, dsamp, movieType);
 end
 
 covtrace = trace(covmat) / npix;
@@ -151,7 +152,7 @@ save(fnmat,'mixedfilters','CovEvals','mixedsig', ...
 fprintf(' CellsortPCA: saving data and exiting; ')
 toc
 
-    function [covmat, mov, movm, movtm] = create_xcov(experiment, pw, ph, useframes, nt, dsamp)
+    function [covmat, mov, movm, movtm] = create_xcov(experiment, pw, ph, useframes, nt, dsamp, movieType)
         %-----------------------
         % Load movie data to compute the spatial covariance matrix
         pixw1 = numel(pw);
@@ -166,7 +167,15 @@ toc
           pixelList = [];
         end
         % Load the video Stream
-        [fID, experiment] = openVideoStream(experiment);
+        switch movieType
+          case 'glia'
+            fID = fopen([experiment.folder 'data' filesep experiment.name '_gliaAverageMovieDataFile.dat'], 'r');
+            fseek(fID, 0, 'bof'); % Just in case
+            width = size(experiment.gliaAverageFrame, 2);
+            height = size(experiment.gliaAverageFrame, 2);
+          otherwise
+            [fID, experiment] = openVideoStream(experiment);
+        end
         
         % Downsampling
         if length(dsamp)==1
@@ -182,7 +191,14 @@ toc
             for jjind=1:length(useframes)
                 jj = useframes(jjind);
                 %mov(:,:,jjind) = imread(fn,jj);
-                curFrame = getFrame(experiment, jj, fID, pixelList);
+                switch movieType
+                  case 'glia'
+                    fseek(fID, prod(width*height)*8*(jj-1), 'bof'); % the 8 refers to BYTES
+                    tmpData = fread(fID, [size(experiment.gliaAverageFrame, 2) size(experiment.gliaAverageFrame, 1)], 'double'); % Sequential read
+                    curFrame = tmpData(pixelList);
+                  otherwise
+                    curFrame = getFrame(experiment, jj, fID, pixelList);
+                end
                 if(~isempty(pixelList))
                   %curFrame = reshape(curFrame, [pixh1, pixw1]);
                   % Inverted because of HIS ordering
@@ -201,7 +217,15 @@ toc
                 end
             end
         else
-          curFrame = getFrame(experiment, 1, fID, pixelList);
+          switch movieType
+            case 'glia'
+              fseek(fID, prod(width*height)*8*(0), 'bof'); % the 8 refers to BYTES
+              tmpData = fread(fID, [size(experiment.gliaAverageFrame, 2) size(experiment.gliaAverageFrame, 1)], 'double'); % Sequential read
+              curFrame = tmpData(pixelList);
+            otherwise
+              curFrame = getFrame(experiment, 1, fID, pixelList);
+          end
+          %curFrame = getFrame(experiment, 1, fID, pixelList);
           if(~isempty(pixelList))
             curFrame = reshape(curFrame, [pixh1, pixw1]);
           end
@@ -210,7 +234,14 @@ toc
           for jjind=1:length(useframes)
               jj = useframes(jjind);
               %mov(:,:,jjind) = imresize( imread(fn,jj), 1/dsamp_space, 'bilinear' );
-              curFrame = getFrame(experiment, jj, fID, pixelList);
+              switch movieType
+                case 'glia'
+                  fseek(fID, prod(width*height)*8*(jj-1), 'bof'); % the 8 refers to BYTES
+                  tmpData = fread(fID, [size(experiment.gliaAverageFrame, 2) size(experiment.gliaAverageFrame, 1)], 'double'); % Sequential read
+                  curFrame = tmpData(pixelList);
+                otherwise
+                  curFrame = getFrame(experiment, jj, fID, pixelList);
+              end
               if(~isempty(pixelList))
                 curFrame = reshape(curFrame, [pixh1, pixw1]);
               end
@@ -247,7 +278,7 @@ toc
         closeVideoStream(fID);
     end
 
-    function [covmat, mov, movm, movtm] = create_tcov(experiment, pw, ph, useframes, nt, dsamp)
+    function [covmat, mov, movm, movtm] = create_tcov(experiment, pw, ph, useframes, nt, dsamp, movieType)
         %-----------------------
         % Load movie data to compute the temporal covariance matrix
         pixw1 = numel(pw);
@@ -261,7 +292,15 @@ toc
           pixelList = [];
         end
         % Load the video Stream
-        [fID, experiment] = openVideoStream(experiment);
+        switch movieType
+          case 'glia'
+            width = size(experiment.gliaAverageFrame, 2);
+            height = size(experiment.gliaAverageFrame, 2);
+            fID = fopen([experiment.folder 'data' filesep experiment.name '_gliaAverageMovieDataFile.dat'], 'r');
+            fseek(fID, 0, 'bof'); % Just in case
+          otherwise
+            [fID, experiment] = openVideoStream(experiment);
+        end
         
         % Downsampling
         if length(dsamp)==1
@@ -278,7 +317,14 @@ toc
             for jjind=1:length(useframes)
                 jj = useframes(jjind);
                 %mov(:,:,jjind) = imread(fn,jj);
-                curFrame = getFrame(experiment, jj, fID, pixelList);
+                switch movieType
+                  case 'glia'
+                    fseek(fID, prod(width*height)*8*(jj-1), 'bof'); % the 8 refers to BYTES
+                    tmpData = fread(fID, [size(experiment.gliaAverageFrame, 2) size(experiment.gliaAverageFrame, 1)], 'double'); % Sequential read
+                    curFrame = tmpData(pixelList);
+                  otherwise
+                    curFrame = getFrame(experiment, jj, fID, pixelList);
+                end
                 if(~isempty(pixelList))
                   curFrame = reshape(curFrame, [pixh1, pixw1]);
                 end
@@ -289,7 +335,14 @@ toc
                 end
             end
         else
-          curFrame = getFrame(experiment, 1, fID, pixelList);
+          switch movieType
+            case 'glia'
+              fseek(fID, prod(width*height)*8*(0), 'bof'); % the 8 refers to BYTES
+              tmpData = fread(fID, [size(experiment.gliaAverageFrame, 2) size(experiment.gliaAverageFrame, 1)], 'double'); % Sequential read
+              curFrame = tmpData(pixelList);
+            otherwise
+              curFrame = getFrame(experiment, 1, fID, pixelList);
+          end
           if(~isempty(pixelList))
             curFrame = reshape(curFrame, [pixh1, pixw1]);
           end
@@ -298,7 +351,14 @@ toc
           for jjind=1:length(useframes)
               jj = useframes(jjind);
               %mov(:,:,jjind) = imresize( imread(fn,jj), 1/dsamp_space, 'bilinear' );
-              curFrame = getFrame(experiment, jj, fID, pixelList);
+              switch movieType
+                case 'glia'
+                  fseek(fID, prod(width*height)*8*(jj-1), 'bof'); % the 8 refers to BYTES
+                  tmpData = fread(fID, [size(experiment.gliaAverageFrame, 2) size(experiment.gliaAverageFrame, 1)], 'double'); % Sequential read
+                  curFrame = tmpData(pixelList);
+                otherwise
+                  curFrame = getFrame(experiment, jj, fID, pixelList);
+              end
               if(~isempty(pixelList))
                 curFrame = reshape(curFrame, [pixh1, pixw1]);
               end
@@ -330,6 +390,7 @@ toc
         movtm = mean(mov,1); % Average over space
         covmat = c1 - movtm'*movtm;
         clear c1
+        closeVideoStream(fID);
     end
 
     function [mixedsig, CovEvals, percentvar] = cellsort_svd(covmat, nPCs, nt, npix1)

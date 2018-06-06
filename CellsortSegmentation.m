@@ -22,8 +22,8 @@ function [ica_segments, segmentlabel, segcentroid] = CellsortSegmentation(ica_fi
 % Email: eran@post.harvard.edu, mschnitz@stanford.edu
 %
 
-tic
-fprintf('-------------- CellsortSegmentation %s -------------- \n', date)
+%tic
+%fprintf('-------------- CellsortSegmentation %s -------------- \n', date)
 
 if (nargin<3)||isempty(thresh)
     thresh = 2;
@@ -48,7 +48,7 @@ if smwidth>0
     
     ica_filtersfilt = ica_filtersfilt/sum(ica_filtersfilt(:));
     ica_filtersbw = false(pixw,pixh,nic);
-    tic
+    %tic
     for j = 1:size(ica_filters,1)
         ica_filtersuse = ica_filters(j,:,:);
         ica_filtersuse = (ica_filtersuse - mean(ica_filtersuse(:)))/abs(std(ica_filtersuse(:)));
@@ -59,7 +59,7 @@ else
     ica_filtersfilt = 1;
 end
 
-tic
+%tic
 if plotting
     clf
     set(gcf,'Color','w')
@@ -149,4 +149,4 @@ for j = 1:nic
     end
     k = size(ica_segments,1);
 end
-toc
+%toc
