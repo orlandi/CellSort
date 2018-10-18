@@ -5,7 +5,7 @@ function [ica_segments, segmentlabel, segcentroid] = CellsortSegmentation(ica_fi
 % Segment spatial filters derived by ICA
 %
 % Inputs:
-%     ica_filters - X x Y x nIC matrix of ICA spatial filters
+%     ica_filters - X x Y x nIC matrix of ICA spatial filters - NOT really: nIC x X x Y
 %     smwidth - standard deviation of Gaussian smoothing kernel (pixels)
 %     thresh - threshold for spatial filters (standard deviations)
 %     arealims - 2-element vector specifying the minimum and maximum area
@@ -50,7 +50,7 @@ if smwidth>0
     ica_filtersbw = false(pixw,pixh,nic);
     %tic
     for j = 1:size(ica_filters,1)
-        ica_filtersuse = ica_filters(j,:,:);
+        ica_filtersuse = squeeze(ica_filters(j,:,:));
         ica_filtersuse = (ica_filtersuse - mean(ica_filtersuse(:)))/abs(std(ica_filtersuse(:)));
         ica_filtersbw(:,:,j) = (imfilter(ica_filtersuse, ica_filtersfilt, 'replicate', 'same') > thresh);
     end
